@@ -49,14 +49,26 @@ async fn main(spawner: Spawner) {
     let usb = Usb::new(peripherals.USB0, peripherals.GPIO20, peripherals.GPIO19);
     let config = HidConfig::default();
     let mut keyboard = Keyboard::new(spawner, usb, config);
+
     // https://docs.espressif.com/projects/rust/esp-hal/1.0.0-beta.0/esp32/esp_hal/gpio/struct.Input.html
     let config = InputConfig::default().with_pull(Pull::Down);
-    let button = Input::new(peripherals.GPIO2, config);
+
+    const NUM_KEYS: usize = 2;
+    let keyswitch_arr = [Input::new(peripherals.GPIO2, config),Input::new(peripherals.GPIO3, config)];
+    let keycode_arr = [keycodes::HID_KEY_0,keycodes::HID_KEY_1];
+    let mut keyswitch_pressed: [bool;NUM_KEYS] = [false; NUM_KEYS];
     loop {
-        if button.is_high() {
-            keyboard.press(keycodes::HID_KEY_C).await;
-        } else {
-            keyboard.release(keycodes::HID_KEY_C).await;
+        for i in 0..NUM_KEYS{
+            if keyswitch_arr[i].is_high() && !keyswitch_pressed[i]{
+                keyswitch_pressed[i] = true;
+                keyboard.press(keycode_arr[i]).await;
+
+            }
+            if keyswitch_arr[i].is_low() && keyswitch_pressed[i]{
+                keyswitch_pressed[i] = false;
+                keyboard.release(keycode_arr[i]).await;
+
+            }
         }
         // Yield here is required. Without it, there is significant lag, presumably because the HID task doesn't get adequate runtime
         Timer::after(Duration::from_millis(5)).await;
