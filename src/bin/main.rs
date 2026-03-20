@@ -14,6 +14,12 @@ use esp_hal::{
     timer::timg::{MwdtStage, MwdtStageAction, TimerGroup, Wdt},
 };
 use esp_rtos::main;
+use esp_hal_smartled::{SmartLedsAdapter, smart_led_buffer};
+use smart_leds::{
+    RGB8, SmartLedsWrite, brightness, gamma,
+    hsv::{Hsv, hsv2rgb},
+};
+use esp_hal::{delay::Delay, rmt::Rmt, time::Rate};
 use esp32_hid::mk_static;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -26,6 +32,21 @@ async fn main(spawner: Spawner) {
 
     // Configure a global allocator
     esp_alloc::heap_allocator!(size: 160 * 1024);
+
+    // Configure RMT (Remote Control Transceiver) peripheral globally
+    // <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/rmt.html>
+        let rmt: Rmt<'_, esp_hal::Blocking> = {
+        let frequency: Rate = {
+                    Rate::from_mhz(80)
+        };
+        Rmt::new(peripherals.RMT, frequency)
+    }
+    .expect("Failed to initialize RMT");
+
+        let rmt_channel = rmt.channel0;
+    let mut rmt_buffer = smart_led_buffer!(21);
+
+    let mut led = SmartLedsAdapter::new(rmt_channel, peripherals.GPIO37, &mut rmt_buffer);
 
     // Setup Embassy
     // (RTOS required for radio and async)
@@ -43,6 +64,16 @@ async fn main(spawner: Spawner) {
 
     // Start watchdog task
     spawner.must_spawn(watchdog_task(wdt1));
+
+
+        let mut color = Hsv {
+        hue: 0,
+        sat: 255,
+        val: 255,
+    };
+    let mut data: RGB8;
+    data = hsv2rgb(color);
+    let level = 10;
 
     // Setup HID task
     // Uses USB GPIOs
@@ -102,6 +133,7 @@ async fn main(spawner: Spawner) {
     ];
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
     loop {
+
         for i in 0..NUM_KEYS {
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
                 keyswitch_pressed[i] = true;
@@ -112,6 +144,8 @@ async fn main(spawner: Spawner) {
                 keyboard.release(keycode_arr[i]).await;
             }
         }
+        led.write(brightness(gamma([data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data].into_iter()), level))
+                .unwrap();
         // Yield here is required. Without it, there is significant lag, presumably because the HID task doesn't get adequate runtime
         Timer::after(Duration::from_millis(5)).await;
     }
