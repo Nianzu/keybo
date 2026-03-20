@@ -102,7 +102,7 @@ async fn main(spawner: Spawner) {
     ];
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
     loop {
-        for i in ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttrrrrrrrrrrrrrrrrrrrrrrrrrrrqqqqqqqqqr0..NUM_KEYS {
+        for i in 0..NUM_KEYS {
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
                 keyswitch_pressed[i] = true;
                 keyboard.press(keycode_arr[i]).await;
