@@ -13,14 +13,14 @@ use esp_hal::{
     peripherals::TIMG1,
     timer::timg::{MwdtStage, MwdtStageAction, TimerGroup, Wdt},
 };
-use esp_rtos::main;
+use esp_hal::{delay::Delay, rmt::Rmt, time::Rate};
 use esp_hal_smartled::{SmartLedsAdapter, smart_led_buffer};
+use esp_rtos::main;
+use esp32_hid::mk_static;
 use smart_leds::{
     RGB8, SmartLedsWrite, brightness, gamma,
     hsv::{Hsv, hsv2rgb},
 };
-use esp_hal::{delay::Delay, rmt::Rmt, time::Rate};
-use esp32_hid::mk_static;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -35,15 +35,13 @@ async fn main(spawner: Spawner) {
 
     // Configure RMT (Remote Control Transceiver) peripheral globally
     // <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/rmt.html>
-        let rmt: Rmt<'_, esp_hal::Blocking> = {
-        let frequency: Rate = {
-                    Rate::from_mhz(80)
-        };
+    let rmt: Rmt<'_, esp_hal::Blocking> = {
+        let frequency: Rate = { Rate::from_mhz(80) };
         Rmt::new(peripherals.RMT, frequency)
     }
     .expect("Failed to initialize RMT");
 
-        let rmt_channel = rmt.channel0;
+    let rmt_channel = rmt.channel0;
     let mut rmt_buffer = smart_led_buffer!(21);
 
     let mut led = SmartLedsAdapter::new(rmt_channel, peripherals.GPIO37, &mut rmt_buffer);
@@ -65,14 +63,20 @@ async fn main(spawner: Spawner) {
     // Start watchdog task
     spawner.must_spawn(watchdog_task(wdt1));
 
-
-        let mut color = Hsv {
+    let mut color_red = Hsv {
         hue: 0,
         sat: 255,
         val: 255,
     };
-    let mut data: RGB8;
-    data = hsv2rgb(color);
+    let mut color_100 = Hsv {
+        hue: 100,
+        sat: 255,
+        val: 255,
+    };
+    let mut data_red: RGB8;
+    let mut data_100: RGB8;
+    data_red = hsv2rgb(color_red);
+    data_100 = hsv2rgb(color_100);
     let level = 10;
 
     // Setup HID task
@@ -108,44 +112,92 @@ async fn main(spawner: Spawner) {
         Input::new(peripherals.GPIO47, config),
         Input::new(peripherals.GPIO48, config),
     ];
-    let keycode_arr: [u8; NUM_KEYS] = [
-        keycodes::HID_KEY_A, 
-        keycodes::HID_KEY_B, 
-        keycodes::HID_KEY_C, 
-        keycodes::HID_KEY_D, 
-        keycodes::HID_KEY_E, 
-        keycodes::HID_KEY_F, 
-        keycodes::HID_KEY_G, 
-        keycodes::HID_KEY_H, 
-        keycodes::HID_KEY_I, 
-        keycodes::HID_KEY_J, 
-        keycodes::HID_KEY_K, 
-        keycodes::HID_KEY_L, 
-        keycodes::HID_KEY_M, 
-        keycodes::HID_KEY_N, 
-        keycodes::HID_KEY_O, 
-        keycodes::HID_KEY_P, 
-        keycodes::HID_KEY_Q, 
-        keycodes::HID_KEY_R, 
-        keycodes::HID_KEY_S, 
-        keycodes::HID_KEY_T, 
-        keycodes::HID_KEY_U, 
+    let key_to_led = [
+        18, 10, 5, 4, 3, 2, 11, 8, 7, 6, 17, 16, 15, 1, 0, 14, 19, 20, 9, 13, 12,
     ];
+    let mut led_color_arr = [data_red; NUM_KEYS];
+    let layer_1 = [
+        [
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_B,
+            keycodes::HID_KEY_C,
+            keycodes::HID_KEY_D,
+            keycodes::HID_KEY_E,
+            keycodes::HID_KEY_F,
+        ],
+        [
+            keycodes::HID_KEY_G,
+            keycodes::HID_KEY_H,
+            keycodes::HID_KEY_I,
+            keycodes::HID_KEY_J,
+            keycodes::HID_KEY_K,
+            keycodes::HID_KEY_L,
+        ],
+        [
+            keycodes::HID_KEY_M,
+            keycodes::HID_KEY_N,
+            keycodes::HID_KEY_O,
+            keycodes::HID_KEY_P,
+            keycodes::HID_KEY_Q,
+            keycodes::HID_KEY_R,
+        ],
+        [
+            keycodes::HID_KEY_S,
+            keycodes::HID_KEY_T,
+            keycodes::HID_KEY_U,
+            keycodes::HID_KEY_V,
+            keycodes::HID_KEY_W,
+            keycodes::HID_KEY_X,
+        ],
+    ];
+    let key_matrix = [
+        (5, 3),
+        (1, 1),
+        (0, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (0, 1),
+        (3, 1),
+        (4, 1),
+        (5, 1),
+        (0, 2),
+        (1, 2),
+        (2, 2),
+        (4, 0),
+        (5, 0),
+        (3, 2),
+        (4, 3),
+        (3, 3),
+        (2, 1),
+        (4, 2),
+        (5, 2),
+    ];
+
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
     loop {
-
         for i in 0..NUM_KEYS {
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
                 keyswitch_pressed[i] = true;
-                keyboard.press(keycode_arr[i]).await;
+                keyboard
+                    .press(layer_1[key_matrix[i].1][key_matrix[i].0])
+                    .await;
             }
             if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
                 keyswitch_pressed[i] = false;
-                keyboard.release(keycode_arr[i]).await;
+                keyboard
+                    .release(layer_1[key_matrix[i].1][key_matrix[i].0])
+                    .await;
+            }
+            if keyswitch_pressed[i] {
+                led_color_arr[key_to_led[i]] = data_100;
+            } else {
+                led_color_arr[key_to_led[i]] = data_red;
             }
         }
-        led.write(brightness(gamma([data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data,data].into_iter()), level))
-                .unwrap();
+
+        led.write(brightness(gamma(led_color_arr.into_iter()), level))
+            .unwrap();
         // Yield here is required. Without it, there is significant lag, presumably because the HID task doesn't get adequate runtime
         Timer::after(Duration::from_millis(5)).await;
     }
