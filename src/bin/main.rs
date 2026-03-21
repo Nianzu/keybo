@@ -112,6 +112,9 @@ async fn main(spawner: Spawner) {
         Input::new(peripherals.GPIO47, config),
         Input::new(peripherals.GPIO48, config),
     ];
+
+    let config = InputConfig::default().with_pull(Pull::Up);
+    let pgood  = Input::new(peripherals.GPIO35, config);
     let key_to_led = [
         18, 10, 5, 4, 3, 2, 11, 8, 7, 6, 17, 16, 15, 1, 0, 14, 19, 20, 9, 13, 12,
     ];
@@ -220,16 +223,23 @@ async fn main(spawner: Spawner) {
                     .await;
             }
 
-            if ((led_matrix[i].0 - pos) as i32).abs() < 1 {
-                led_color_arr[i] = data_100;
-            } else {
-                led_color_arr[i] = data_red;
-            }
+            // if ((led_matrix[i].0 - pos) as i32).abs() < 1 {
+            //     led_color_arr[i] = data_100;
+            // } else {
+            //     led_color_arr[i] = data_red;
+            // }
+
             // if keyswitch_pressed[i] {
             //     led_color_arr[key_to_led[i]] = data_100;
             // } else{
             //     led_color_arr[key_to_led[i]] = data_red;
             // }
+            
+            if pgood.is_high(){
+                led_color_arr[i] = data_100;
+            } else {
+                led_color_arr[i] = data_red;
+            }
         }
 
         led.write(brightness(gamma(led_color_arr.into_iter()), level))
