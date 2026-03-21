@@ -13,7 +13,7 @@ use esp_hal::{
     peripherals::TIMG1,
     timer::timg::{MwdtStage, MwdtStageAction, TimerGroup, Wdt},
 };
-use esp_hal::{delay::Delay, rmt::Rmt, time::Rate};
+use esp_hal::{rmt::Rmt, time::Rate};
 use esp_hal_smartled::{SmartLedsAdapter, smart_led_buffer};
 use esp_rtos::main;
 use esp32_hid::mk_static;
@@ -150,6 +150,30 @@ async fn main(spawner: Spawner) {
             keycodes::HID_KEY_X,
         ],
     ];
+
+    let led_matrix = [
+        (5, 0),
+        (4, 0),
+        (3, 0),
+        (2, 0),
+        (1, 0),
+        (0, 0),
+        (5, 1),
+        (4, 1),
+        (3, 1),
+        (2, 1),
+        (1, 1),
+        (0, 1),
+        (5, 2),
+        (4, 2),
+        (3, 2),
+        (2, 2),
+        (1, 2),
+        (0, 2),
+        (5, 3),
+        (4, 3),
+        (3, 3),
+    ];
     let key_matrix = [
         (5, 3),
         (1, 1),
@@ -175,7 +199,13 @@ async fn main(spawner: Spawner) {
     ];
 
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
+    let mut percent = 0;
     loop {
+        percent += 1;
+        if percent > 100 {
+            percent = 0;
+        }
+        let pos = (percent / 10) - 2;
         for i in 0..NUM_KEYS {
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
                 keyswitch_pressed[i] = true;
@@ -189,11 +219,17 @@ async fn main(spawner: Spawner) {
                     .release(layer_1[key_matrix[i].1][key_matrix[i].0])
                     .await;
             }
-            if keyswitch_pressed[i] {
-                led_color_arr[key_to_led[i]] = data_100;
+
+            if ((led_matrix[i].0 - pos) as i32).abs() < 1 {
+                led_color_arr[i] = data_100;
             } else {
-                led_color_arr[key_to_led[i]] = data_red;
+                led_color_arr[i] = data_red;
             }
+            // if keyswitch_pressed[i] {
+            //     led_color_arr[key_to_led[i]] = data_100;
+            // } else{
+            //     led_color_arr[key_to_led[i]] = data_red;
+            // }
         }
 
         led.write(brightness(gamma(led_color_arr.into_iter()), level))
