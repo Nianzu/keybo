@@ -11,7 +11,7 @@ path = "./src/bin/main.rs"
 [dependencies]
 esp-hal = { version = "~1.0", features = ["esp32s3", "unstable"] }
 
-esp-rtos = { version = "0.2.0", features = ["embassy", "esp-alloc", "esp32s3"] }
+esp-rtos = { version = "0.2.0", features = ["embassy", "esp-alloc", "esp32s3",  "esp-radio",] }
 
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
 
@@ -26,6 +26,8 @@ esp-backtrace = {version ="0.18.1", features = ["esp32s3", "println", "panic-han
 esp-hal-smartled = "0.17.0"
 smart-leds = "0.4.0"
 nb = "1.1.0"
+esp-radio = { version = "0.17.0", features = ["esp32s3","esp-now", "unstable", "wifi", "esp-alloc"]}
+embassy-sync = "0.8.0"
 
 [profile.dev]
 # Rust debug is too slow.
