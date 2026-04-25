@@ -7,10 +7,11 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::{
+    analog::adc::{Adc, AdcConfig,Attenuation},
     clock::CpuClock,
     gpio::{Input, InputConfig, Pull},
     otg_fs::Usb,
-    peripherals::TIMG1,
+    peripherals::{ADC1, TIMG1},
     timer::timg::{MwdtStage, MwdtStageAction, TimerGroup, Wdt},
 };
 use esp_hal::{rmt::Rmt, time::Rate};
@@ -21,6 +22,7 @@ use smart_leds::{
     RGB8, SmartLedsWrite, brightness, gamma,
     hsv::{Hsv, hsv2rgb},
 };
+use nb::block;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -118,6 +120,13 @@ async fn main(spawner: Spawner) {
     let key_to_led = [
         18, 10, 5, 4, 3, 2, 11, 8, 7, 6, 17, 16, 15, 1, 0, 14, 19, 20, 9, 13, 12,
     ];
+
+    let mut config:AdcConfig<ADC1> = AdcConfig::new();
+
+    let mut pin = config.enable_pin(peripherals.GPIO1, Attenuation::_11dB);
+    let mut adc1 = Adc::new(peripherals.ADC1, config);
+
+
     let mut led_color_arr = [data_red; NUM_KEYS];
     let layer_1 = [
         [
@@ -208,7 +217,8 @@ async fn main(spawner: Spawner) {
         if percent > 100 {
             percent = 0;
         }
-        let pos = (percent / 10) - 2;
+        let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64/400.0;
+        // let pos = (percent / 10) - 2;
         for i in 0..NUM_KEYS {
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
                 keyswitch_pressed[i] = true;
@@ -235,7 +245,13 @@ async fn main(spawner: Spawner) {
             //     led_color_arr[key_to_led[i]] = data_red;
             // }
             
-            if pgood.is_high(){
+            // if pgood.is_high(){
+            //     led_color_arr[i] = data_100;
+            // } else {
+            //     led_color_arr[i] = data_red;
+            // }
+
+            if (i as f64) < pos {
                 led_color_arr[i] = data_100;
             } else {
                 led_color_arr[i] = data_red;
