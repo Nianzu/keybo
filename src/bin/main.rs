@@ -34,7 +34,27 @@ use smart_leds::{
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
-static LED_SIGNAL: Signal<CriticalSectionRawMutex, u8> = Signal::new();
+struct KeyMessage {
+    press: bool,
+    key: u8,
+}
+
+impl KeyMessage {
+    pub fn to_bytes(&self) -> [u8; 2] {
+        [self.press as u8, self.key]
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 2 {
+            return None;
+        }
+        Some(Self {
+            press: bytes[0] != 0,
+            key: bytes[1],
+        })
+    }
+}
+
+static LED_SIGNAL: Signal<CriticalSectionRawMutex, KeyMessage> = Signal::new();
 
 #[main]
 async fn main(spawner: Spawner) {
@@ -251,20 +271,23 @@ async fn main(spawner: Spawner) {
                     .await;
                 let peer = manager.fetch_peer(true);
                 if peer.is_ok() {
+                    let k = KeyMessage{press: true, key: layer_1[key_matrix[i].1][key_matrix[i].0]};
+                    let msg = KeyMessage::to_bytes(&k);
                     let mut sender = sender.lock().await;
-                    let status = sender
-                        .send_async(
-                            &peer.unwrap().peer_address,
-                            &[layer_1[key_matrix[i].1][key_matrix[i].0]],
-                        )
-                        .await;
-                };
+                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                }
             }
             if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
                 keyswitch_pressed[i] = false;
                 keyboard
-                    .release(layer_1[key_matrix[i].1][key_matrix[i].0])
-                    .await;
+                    .release(layer_1[key_matrix[i].1][key_matrix[i].0]).await;
+                let peer = manager.fetch_peer(true);
+                 if peer.is_ok() {
+                    let k = KeyMessage{press: false, key: layer_1[key_matrix[i].1][key_matrix[i].0]};
+                    let msg = KeyMessage::to_bytes(&k);
+                    let mut sender = sender.lock().await;
+                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                }   
             }
 
             // if ((led_matrix[i].0 - pos) as i32).abs() < 1 {
@@ -293,7 +316,11 @@ async fn main(spawner: Spawner) {
         }
 
         if let Some(new_colors) = LED_SIGNAL.try_take() {
-            keyboard.press(new_colors).await;
+            if new_colors.press {
+                keyboard.press(new_colors.key).await;
+            } else {
+                keyboard.release(new_colors.key).await;
+            }
         }
 
         led.write(brightness(gamma(led_color_arr.into_iter()), level))
@@ -340,7 +367,11 @@ async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNow
                     .unwrap();
             }
         } else if r.info.dst_address == mac {
-            LED_SIGNAL.signal(r.data()[0]);
+            
+
+            if let Some(msg) = KeyMessage::from_bytes(r.data()) {
+                LED_SIGNAL.signal(msg);
+            }
         }
     }
 }
