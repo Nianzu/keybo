@@ -8,6 +8,10 @@ version      = "0.1.0"
 name = "keybo"
 path = "./src/bin/main.rs"
 
+
+[features]
+left = []
+
 [dependencies]
 esp-hal = { version = "~1.0", features = ["esp32s3", "unstable"] }
 

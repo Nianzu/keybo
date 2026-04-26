@@ -165,13 +165,14 @@ async fn main(spawner: Spawner) {
     let key_to_led = [
         18, 10, 5, 4, 3, 2, 11, 8, 7, 6, 17, 16, 15, 1, 0, 14, 19, 20, 9, 13, 12,
     ];
-
     let mut config: AdcConfig<ADC1> = AdcConfig::new();
 
     let mut pin = config.enable_pin(peripherals.GPIO1, Attenuation::_11dB);
     let mut adc1 = Adc::new(peripherals.ADC1, config);
 
     let mut led_color_arr = [data_red; NUM_KEYS];
+
+    #[cfg(not(feature = "left"))]
     let layer_1 = [
         [
             keycodes::HID_KEY_A,
@@ -204,6 +205,43 @@ async fn main(spawner: Spawner) {
             keycodes::HID_KEY_V,
             keycodes::HID_KEY_W,
             keycodes::HID_KEY_X,
+        ],
+    ];
+
+
+    #[cfg(feature = "left")]
+    let layer_1 = [
+        [
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+        ],
+        [
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+        ],
+        [
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+        ],
+        [
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
+            keycodes::HID_KEY_A,
         ],
     ];
 
@@ -296,11 +334,11 @@ async fn main(spawner: Spawner) {
             //     led_color_arr[i] = data_red;
             // }
 
-            // if keyswitch_pressed[i] {
-            //     led_color_arr[key_to_led[i]] = data_100;
-            // } else{
-            //     led_color_arr[key_to_led[i]] = data_red;
-            // }
+            if keyswitch_pressed[i] {
+                led_color_arr[key_to_led[i]] = data_100;
+            } else{
+                led_color_arr[key_to_led[i]] = data_red;
+            }
 
             // if pgood.is_high(){
             //     led_color_arr[i] = data_100;
@@ -308,11 +346,11 @@ async fn main(spawner: Spawner) {
             //     led_color_arr[i] = data_red;
             // }
 
-            if (i as f64) < pos {
-                led_color_arr[i] = data_100;
-            } else {
-                led_color_arr[i] = data_red;
-            }
+            // if (i as f64) < pos {
+            //     led_color_arr[i] = data_100;
+            // } else {
+            //     led_color_arr[i] = data_red;
+            // }
         }
 
         if let Some(new_colors) = LED_SIGNAL.try_take() {
