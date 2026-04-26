@@ -8,6 +8,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
+use esp_hal::efuse::Efuse;
 use esp_hal::{
     analog::adc::{Adc, AdcConfig, Attenuation},
     clock::CpuClock,
@@ -18,10 +19,10 @@ use esp_hal::{
 };
 use esp_hal::{rmt::Rmt, time::Rate};
 use esp_hal_smartled::{SmartLedsAdapter, smart_led_buffer};
+use esp_radio::Controller;
 use esp_radio::esp_now::{
     BROADCAST_ADDRESS, EspNowManager, EspNowReceiver, EspNowSender, PeerInfo,
 };
-use esp_radio::Controller;
 use esp_rtos::main;
 use esp32_hid::mk_static;
 use nb::block;
@@ -33,7 +34,7 @@ use smart_leds::{
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
-static LED_SIGNAL: Signal<CriticalSectionRawMutex, [RGB8; 21]> = Signal::new();
+static LED_SIGNAL: Signal<CriticalSectionRawMutex, u8> = Signal::new();
 
 #[main]
 async fn main(spawner: Spawner) {
@@ -69,47 +70,22 @@ async fn main(spawner: Spawner) {
     wdt1.enable();
     wdt1.feed();
 
-    // https://github.com/esp-rs/esp-hal/blob/main/examples/esp-now/embassy_esp_now_duplex/src/main.rs
-    // start the controller in station mode
-
     let esp_radio_ctrl = &*mk_static!(Controller<'static>, esp_radio::init().unwrap());
-
     let wifi = peripherals.WIFI;
     let (mut controller, interfaces) =
         esp_radio::wifi::new(&esp_radio_ctrl, wifi, Default::default()).unwrap();
     controller.set_mode(esp_radio::wifi::WifiMode::Sta).unwrap();
     controller.start().unwrap();
     let esp_now = interfaces.esp_now;
-
-// Note: pass a reference to the controller, not ownership
-
-esp_now.set_channel(11).unwrap();
-
-let (manager, sender, receiver) = esp_now.split();
-let manager = mk_static!(EspNowManager<'static>, manager);
-let sender = mk_static!(
-    Mutex::<CriticalSectionRawMutex, EspNowSender<'static>>,
-    Mutex::<CriticalSectionRawMutex, _>::new(sender)
-);
-
-spawner.must_spawn(listener(manager, receiver));
-spawner.must_spawn(broadcaster(sender));
-    // let (_wifi_controller, interfaces) =
-    //     esp_radio::wifi::new(radio_controller, wifi, Default::default()).unwrap();
-
-    // let (_controller, interfaces) = esp_radio::wifi::new(wifi, Default::default()).unwrap();
-    // let esp_now = interfaces.esp_now;
-    // esp_now.set_channel(11).unwrap();
-    // let (manager, sender, receiver) = esp_now.split();
-    // let manager = mk_static!(EspNowManager<'static>, manager);
-    // let sender = mk_static!(
-    //     Mutex::<CriticalSectionRawMutex, EspNowSender<'static>>,
-    //     Mutex::<CriticalSectionRawMutex, _>::new(sender)
-    // );
-    // spawner.must_spawn(listener(manager, receiver));
-    // spawner.must_spawn(broadcaster(sender));
-    //spawner.spawn(listener(manager, receiver).unwrap());
-    //spawner.spawn(broadcaster(sender).unwrap());
+    esp_now.set_channel(11).unwrap();
+    let (manager, sender, receiver) = esp_now.split();
+    let manager = mk_static!(EspNowManager<'static>, manager);
+    let sender = mk_static!(
+        Mutex::<CriticalSectionRawMutex, EspNowSender<'static>>,
+        Mutex::<CriticalSectionRawMutex, _>::new(sender)
+    );
+    spawner.must_spawn(listener(manager, receiver));
+    spawner.must_spawn(broadcaster(sender));
 
     // Start watchdog task
     spawner.must_spawn(watchdog_task(wdt1));
@@ -273,6 +249,16 @@ spawner.must_spawn(broadcaster(sender));
                 keyboard
                     .press(layer_1[key_matrix[i].1][key_matrix[i].0])
                     .await;
+                let peer = manager.fetch_peer(true);
+                if peer.is_ok() {
+                    let mut sender = sender.lock().await;
+                    let status = sender
+                        .send_async(
+                            &peer.unwrap().peer_address,
+                            &[layer_1[key_matrix[i].1][key_matrix[i].0]],
+                        )
+                        .await;
+                };
             }
             if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
                 keyswitch_pressed[i] = false;
@@ -307,7 +293,7 @@ spawner.must_spawn(broadcaster(sender));
         }
 
         if let Some(new_colors) = LED_SIGNAL.try_take() {
-            led_color_arr = new_colors;
+            keyboard.press(new_colors).await;
         }
 
         led.write(brightness(gamma(led_color_arr.into_iter()), level))
@@ -338,15 +324,13 @@ async fn broadcaster(sender: &'static Mutex<CriticalSectionRawMutex, EspNowSende
 
 #[embassy_executor::task]
 async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNowReceiver<'static>) {
+    let mac = Efuse::mac_address();
     loop {
         let r = receiver.receive_async().await;
-        let colors = [RGB8 { r: 0, g: 50, b: 0 }; 21];
-        LED_SIGNAL.signal(colors);
         if r.info.dst_address == BROADCAST_ADDRESS {
             if !manager.peer_exists(&r.info.src_address) {
                 manager
                     .add_peer(PeerInfo {
-                        //interface: esp_radio::esp_now::EspNowWifiInterface::Station,
                         interface: esp_radio::esp_now::EspNowWifiInterface::Sta,
                         peer_address: r.info.src_address,
                         lmk: None,
@@ -355,6 +339,8 @@ async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNow
                     })
                     .unwrap();
             }
+        } else if r.info.dst_address == mac {
+            LED_SIGNAL.signal(r.data()[0]);
         }
     }
 }
