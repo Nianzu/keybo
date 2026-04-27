@@ -54,7 +54,30 @@ impl KeyMessage {
     }
 }
 
-static LED_SIGNAL: Signal<CriticalSectionRawMutex, KeyMessage> = Signal::new();
+enum GeneralMessage {
+    KeyMessage(KeyMessage),
+}
+
+impl GeneralMessage {
+    pub fn to_bytes(&self) -> [u8; 3] {
+        match self {
+            GeneralMessage::KeyMessage(m) => [0, m.to_bytes()[0], m.to_bytes()[1]],
+        }
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 3 {
+            return None;
+        }
+        return match bytes[0] {
+            0 => Some(GeneralMessage::KeyMessage(
+                KeyMessage::from_bytes(&bytes[1..]).unwrap(),
+            )),
+            _ => None,
+        };
+    }
+}
+
+static LED_SIGNAL: Signal<CriticalSectionRawMutex, GeneralMessage> = Signal::new();
 
 #[main]
 async fn main(spawner: Spawner) {
@@ -208,7 +231,6 @@ async fn main(spawner: Spawner) {
         ],
     ];
 
-
     #[cfg(feature = "left")]
     let layer_1 = [
         [
@@ -309,8 +331,12 @@ async fn main(spawner: Spawner) {
                     .await;
                 let peer = manager.fetch_peer(true);
                 if peer.is_ok() {
-                    let k = KeyMessage{press: true, key: layer_1[key_matrix[i].1][key_matrix[i].0]};
-                    let msg = KeyMessage::to_bytes(&k);
+                    let k = KeyMessage {
+                        press: true,
+                        key: layer_1[key_matrix[i].1][key_matrix[i].0],
+                    };
+                    let g = GeneralMessage::KeyMessage(k);
+                    let msg = GeneralMessage::to_bytes(&g);
                     let mut sender = sender.lock().await;
                     let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                 }
@@ -318,14 +344,19 @@ async fn main(spawner: Spawner) {
             if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
                 keyswitch_pressed[i] = false;
                 keyboard
-                    .release(layer_1[key_matrix[i].1][key_matrix[i].0]).await;
+                    .release(layer_1[key_matrix[i].1][key_matrix[i].0])
+                    .await;
                 let peer = manager.fetch_peer(true);
-                 if peer.is_ok() {
-                    let k = KeyMessage{press: false, key: layer_1[key_matrix[i].1][key_matrix[i].0]};
-                    let msg = KeyMessage::to_bytes(&k);
+                if peer.is_ok() {
+                    let k = KeyMessage {
+                        press: false,
+                        key: layer_1[key_matrix[i].1][key_matrix[i].0],
+                    };
+                    let g = GeneralMessage::KeyMessage(k);
+                    let msg = GeneralMessage::to_bytes(&g);
                     let mut sender = sender.lock().await;
                     let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                }   
+                }
             }
 
             // if ((led_matrix[i].0 - pos) as i32).abs() < 1 {
@@ -336,7 +367,7 @@ async fn main(spawner: Spawner) {
 
             if keyswitch_pressed[i] {
                 led_color_arr[key_to_led[i]] = data_100;
-            } else{
+            } else {
                 led_color_arr[key_to_led[i]] = data_red;
             }
 
@@ -354,10 +385,12 @@ async fn main(spawner: Spawner) {
         }
 
         if let Some(new_colors) = LED_SIGNAL.try_take() {
-            if new_colors.press {
-                keyboard.press(new_colors.key).await;
-            } else {
-                keyboard.release(new_colors.key).await;
+            if let GeneralMessage::KeyMessage(km) = new_colors {
+                if km.press {
+                    keyboard.press(km.key).await;
+                } else {
+                    keyboard.release(km.key).await;
+                }
             }
         }
 
@@ -405,9 +438,7 @@ async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNow
                     .unwrap();
             }
         } else if r.info.dst_address == mac {
-            
-
-            if let Some(msg) = KeyMessage::from_bytes(r.data()) {
+            if let Some(msg) = GeneralMessage::from_bytes(r.data()) {
                 LED_SIGNAL.signal(msg);
             }
         }
