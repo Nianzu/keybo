@@ -54,14 +54,34 @@ impl KeyMessage {
     }
 }
 
+struct LayerMessage {
+    new_layer: u8,
+}
+
+impl LayerMessage {
+    pub fn to_bytes(&self) -> [u8; 2] {
+        [self.new_layer as u8, 0]
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 1 {
+            return None;
+        }
+        Some(Self {
+            new_layer: bytes[0],
+        })
+    }
+}
+
 enum GeneralMessage {
     KeyMessage(KeyMessage),
+    LayerMessage(LayerMessage),
 }
 
 impl GeneralMessage {
     pub fn to_bytes(&self) -> [u8; 3] {
         match self {
             GeneralMessage::KeyMessage(m) => [0, m.to_bytes()[0], m.to_bytes()[1]],
+            GeneralMessage::LayerMessage(m) => [1, m.to_bytes()[0], m.to_bytes()[1]],
         }
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -72,15 +92,25 @@ impl GeneralMessage {
             0 => Some(GeneralMessage::KeyMessage(
                 KeyMessage::from_bytes(&bytes[1..]).unwrap(),
             )),
+            1 => Some(GeneralMessage::LayerMessage(
+                LayerMessage::from_bytes(&bytes[1..]).unwrap(),
+            )),
             _ => None,
         };
     }
+}
+
+enum KeyAction<'a> {
+    multi_key(&'a [u8]),
+    key(u8),
+    layer_mo(u8),
 }
 
 static LED_SIGNAL: Signal<CriticalSectionRawMutex, GeneralMessage> = Signal::new();
 
 #[main]
 async fn main(spawner: Spawner) {
+    let mut layer = 0;
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
     // Configure a global allocator
@@ -198,72 +228,218 @@ async fn main(spawner: Spawner) {
     #[cfg(not(feature = "left"))]
     let layer_1 = [
         [
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_P,
-            keycodes::HID_KEY_O,
-            keycodes::HID_KEY_I,
-            keycodes::HID_KEY_U,
-            keycodes::HID_KEY_Y,
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_P),
+                KeyAction::key(keycodes::HID_KEY_O),
+                KeyAction::key(keycodes::HID_KEY_I),
+                KeyAction::key(keycodes::HID_KEY_U),
+                KeyAction::key(keycodes::HID_KEY_Y),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_BACKSPACE),
+                KeyAction::key(keycodes::HID_KEY_SEMICOLON),
+                KeyAction::key(keycodes::HID_KEY_L),
+                KeyAction::key(keycodes::HID_KEY_K),
+                KeyAction::key(keycodes::HID_KEY_J),
+                KeyAction::key(keycodes::HID_KEY_H),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_PERIOD),
+                KeyAction::key(keycodes::HID_KEY_COMMA),
+                KeyAction::key(keycodes::HID_KEY_M),
+                KeyAction::key(keycodes::HID_KEY_N),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_SHIFT_LEFT),
+                KeyAction::key(keycodes::HID_KEY_ENTER),
+                KeyAction::layer_mo(2),
+            ],
         ],
         [
-            keycodes::HID_KEY_BACKSPACE,
-            keycodes::HID_KEY_SEMICOLON,
-            keycodes::HID_KEY_L,
-            keycodes::HID_KEY_K,
-            keycodes::HID_KEY_J,
-            keycodes::HID_KEY_H,
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_TAB),
+                KeyAction::key(keycodes::HID_KEY_ALT_LEFT),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_BACKSPACE),
+                KeyAction::key(keycodes::HID_KEY_ARROW_RIGHT),
+                KeyAction::key(keycodes::HID_KEY_ARROW_UP),
+                KeyAction::key(keycodes::HID_KEY_ARROW_DOWN),
+                KeyAction::key(keycodes::HID_KEY_ARROW_LEFT),
+                KeyAction::key(keycodes::HID_KEY_GUI_LEFT),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_END),
+                KeyAction::key(keycodes::HID_KEY_PRINT_SCREEN),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_HOME),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::layer_mo(2),
+            ],
         ],
         [
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_PERIOD,
-            keycodes::HID_KEY_COMMA,
-            keycodes::HID_KEY_M,
-            keycodes::HID_KEY_N,
-        ],
-        [
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_SHIFT_LEFT,
-            keycodes::HID_KEY_ENTER,
-            keycodes::HID_KEY_NONE,
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_7]),
+                KeyAction::key(keycodes::HID_KEY_EQUAL),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_PERIOD]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_COMMA]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_1]),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_BACKSPACE),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_SEMICOLON]),
+                KeyAction::key(keycodes::HID_KEY_APOSTROPHE),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_0]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_9]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_SLASH]),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_2]),
+                KeyAction::key(keycodes::HID_KEY_BACKSLASH),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_5]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_EQUAL]),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::layer_mo(2),
+            ],
         ],
     ];
 
     #[cfg(feature = "left")]
     let layer_1 = [
         [
-            keycodes::HID_KEY_ESCAPE,
-            keycodes::HID_KEY_Q,
-            keycodes::HID_KEY_W,
-            keycodes::HID_KEY_E,
-            keycodes::HID_KEY_R,
-            keycodes::HID_KEY_T,
+            [
+                KeyAction::key(keycodes::HID_KEY_ESCAPE),
+                KeyAction::key(keycodes::HID_KEY_Q),
+                KeyAction::key(keycodes::HID_KEY_W),
+                KeyAction::key(keycodes::HID_KEY_E),
+                KeyAction::key(keycodes::HID_KEY_R),
+                KeyAction::key(keycodes::HID_KEY_T),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_TAB),
+                KeyAction::key(keycodes::HID_KEY_A),
+                KeyAction::key(keycodes::HID_KEY_S),
+                KeyAction::key(keycodes::HID_KEY_D),
+                KeyAction::key(keycodes::HID_KEY_F),
+                KeyAction::key(keycodes::HID_KEY_G),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_Z),
+                KeyAction::key(keycodes::HID_KEY_X),
+                KeyAction::key(keycodes::HID_KEY_C),
+                KeyAction::key(keycodes::HID_KEY_V),
+                KeyAction::key(keycodes::HID_KEY_B),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_CONTROL_LEFT),
+                KeyAction::key(keycodes::HID_KEY_SPACE),
+                KeyAction::layer_mo(1),
+            ],
         ],
         [
-            keycodes::HID_KEY_TAB,
-            keycodes::HID_KEY_A,
-            keycodes::HID_KEY_S,
-            keycodes::HID_KEY_D,
-            keycodes::HID_KEY_F,
-            keycodes::HID_KEY_G,
+            [
+                KeyAction::key(keycodes::HID_KEY_ESCAPE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_7),
+                KeyAction::key(keycodes::HID_KEY_8),
+                KeyAction::key(keycodes::HID_KEY_9),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_TAB),
+                KeyAction::key(keycodes::HID_KEY_0),
+                KeyAction::key(keycodes::HID_KEY_4),
+                KeyAction::key(keycodes::HID_KEY_5),
+                KeyAction::key(keycodes::HID_KEY_6),
+                KeyAction::key(keycodes::HID_KEY_ENTER),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_1),
+                KeyAction::key(keycodes::HID_KEY_2),
+                KeyAction::key(keycodes::HID_KEY_3),
+                KeyAction::key(keycodes::HID_KEY_PERIOD),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::layer_mo(1),
+            ],
         ],
         [
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_Z,
-            keycodes::HID_KEY_X,
-            keycodes::HID_KEY_C,
-            keycodes::HID_KEY_V,
-            keycodes::HID_KEY_B,
-        ],
-        [
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_NONE,
-            keycodes::HID_KEY_CONTROL_LEFT,
-            keycodes::HID_KEY_SPACE,
-            keycodes::HID_KEY_NONE,
+            [
+                KeyAction::key(keycodes::HID_KEY_ESCAPE),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_APOSTROPHE]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_MINUS]),
+                KeyAction::key(keycodes::HID_KEY_BRACKET_LEFT),
+                KeyAction::key(keycodes::HID_KEY_BRACKET_RIGHT),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_6]),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_SLASH),
+                KeyAction::key(keycodes::HID_KEY_MINUS),
+                KeyAction::multi_key(&[
+                    keycodes::HID_KEY_SHIFT_LEFT,
+                    keycodes::HID_KEY_BRACKET_LEFT,
+                ]),
+                KeyAction::multi_key(&[
+                    keycodes::HID_KEY_SHIFT_LEFT,
+                    keycodes::HID_KEY_BRACKET_RIGHT,
+                ]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_8]),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_3]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_4]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_BACKSLASH]),
+                KeyAction::multi_key(&[keycodes::HID_KEY_SHIFT_LEFT, keycodes::HID_KEY_GRAVE]),
+                KeyAction::key(keycodes::HID_KEY_GRAVE),
+            ],
+            [
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::key(keycodes::HID_KEY_NONE),
+                KeyAction::layer_mo(1),
+            ],
         ],
     ];
 
@@ -326,36 +502,97 @@ async fn main(spawner: Spawner) {
         for i in 0..NUM_KEYS {
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
                 keyswitch_pressed[i] = true;
-                keyboard
-                    .press(layer_1[key_matrix[i].1][key_matrix[i].0])
-                    .await;
-                let peer = manager.fetch_peer(true);
-                if peer.is_ok() {
-                    let k = KeyMessage {
-                        press: true,
-                        key: layer_1[key_matrix[i].1][key_matrix[i].0],
-                    };
-                    let g = GeneralMessage::KeyMessage(k);
-                    let msg = GeneralMessage::to_bytes(&g);
-                    let mut sender = sender.lock().await;
-                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                if let KeyAction::key(key) = layer_1[layer][key_matrix[i].1][key_matrix[i].0] {
+                    keyboard.press(key).await;
+                    let peer = manager.fetch_peer(true);
+                    if peer.is_ok() {
+                        let k = KeyMessage {
+                            press: true,
+                            key: key,
+                        };
+                        let g = GeneralMessage::KeyMessage(k);
+                        let msg = GeneralMessage::to_bytes(&g);
+                        let mut sender = sender.lock().await;
+                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                    }
+                } else if let KeyAction::layer_mo(l) =
+                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
+                {
+                    layer = l as usize;
+                    let peer = manager.fetch_peer(true);
+                    if peer.is_ok() {
+                        let k = LayerMessage {
+                            new_layer: layer as u8,
+                        };
+                        let g = GeneralMessage::LayerMessage(k);
+                        let msg = GeneralMessage::to_bytes(&g);
+                        let mut sender = sender.lock().await;
+                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                    }
+                } else if let KeyAction::multi_key(k) =
+                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
+                {
+                    for key in k {
+                        keyboard.press(*key).await;
+                        let peer = manager.fetch_peer(true);
+                        let k = KeyMessage {
+                            press: true,
+                            key: *key,
+                        };
+                        let g = GeneralMessage::KeyMessage(k);
+                        let msg = GeneralMessage::to_bytes(&g);
+                        let mut sender = sender.lock().await;
+                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                    }
+                    
                 }
             }
             if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
                 keyswitch_pressed[i] = false;
-                keyboard
-                    .release(layer_1[key_matrix[i].1][key_matrix[i].0])
-                    .await;
-                let peer = manager.fetch_peer(true);
-                if peer.is_ok() {
-                    let k = KeyMessage {
-                        press: false,
-                        key: layer_1[key_matrix[i].1][key_matrix[i].0],
-                    };
-                    let g = GeneralMessage::KeyMessage(k);
-                    let msg = GeneralMessage::to_bytes(&g);
-                    let mut sender = sender.lock().await;
-                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                if let KeyAction::key(key) = layer_1[layer][key_matrix[i].1][key_matrix[i].0] {
+                    keyboard.release(key).await;
+                    let peer = manager.fetch_peer(true);
+                    if peer.is_ok() {
+                        let k = KeyMessage {
+                            press: false,
+                            key: key,
+                        };
+                        let g = GeneralMessage::KeyMessage(k);
+                        let msg = GeneralMessage::to_bytes(&g);
+                        let mut sender = sender.lock().await;
+                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                    }
+                } else if let KeyAction::layer_mo(l) =
+                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
+                {
+                    layer = 0;
+                    let peer = manager.fetch_peer(true);
+                    if peer.is_ok() {
+                        let k = LayerMessage {
+                            new_layer: layer as u8,
+                        };
+                        let g = GeneralMessage::LayerMessage(k);
+                        let msg = GeneralMessage::to_bytes(&g);
+                        let mut sender = sender.lock().await;
+                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                    }
+                } else if let KeyAction::multi_key(k) =
+                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
+                {
+                    for key in k {
+                        keyboard.release(*key).await;
+                        let peer = manager.fetch_peer(true);
+                        if peer.is_ok() {
+                            let k = KeyMessage {
+                                press: false,
+                                key: *key,
+                            };
+                            let g = GeneralMessage::KeyMessage(k);
+                            let msg = GeneralMessage::to_bytes(&g);
+                            let mut sender = sender.lock().await;
+                            let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                        }
+                    }
                 }
             }
 
@@ -391,6 +628,8 @@ async fn main(spawner: Spawner) {
                 } else {
                     keyboard.release(km.key).await;
                 }
+            } else if let GeneralMessage::LayerMessage(lm) = new_colors {
+                layer = lm.new_layer as usize;
             }
         }
 
