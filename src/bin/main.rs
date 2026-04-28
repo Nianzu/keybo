@@ -531,101 +531,101 @@ async fn main(spawner: Spawner) {
 
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
     loop {
+        // Sensor input
         let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64 / 400.0;
+
+        // Process data from other keyboard
+        if let Some(new_colors) = LED_SIGNAL.try_take() {
+            if let GeneralMessage::KeyMessage(km) = new_colors {
+                if km.press {
+                    keyboard.press(km.key).await;
+                } else {
+                    keyboard.release(km.key).await;
+                }
+            } else if let GeneralMessage::LayerMessage(lm) = new_colors {
+                layer = lm.new_layer as usize;
+                keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
+            } else if let GeneralMessage::MultiKeyMessage(km) = new_colors {
+                if km.press {
+                    keyboard.press(km.key_1).await;
+                    keyboard.press(km.key_2).await;
+                } else {
+                    keyboard.release(km.key_1).await;
+                    keyboard.release(km.key_2).await;
+                }
+            }
+        }
+
+        // Key loop
         for i in 0..NUM_KEYS {
             let key_action = &layer_1[layer][key_matrix[i].1][key_matrix[i].0];
+            let mut pressed = true;
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
-                keyswitch_pressed[i] = true;
-                if let KeyAction::key(key) = *key_action {
-                    keyboard.press(key).await;
-                    let peer = manager.fetch_peer(true);
-                    if peer.is_ok() {
-                        let k = KeyMessage {
-                            press: true,
-                            key: key,
-                        };
-                        let g = GeneralMessage::KeyMessage(k);
-                        let msg = GeneralMessage::to_bytes(&g);
-                        let mut sender = sender.lock().await;
-                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                    }
-                } else if let KeyAction::layer_mo(l) = *key_action {
-                    layer = l as usize;
-                    keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
-                    let peer = manager.fetch_peer(true);
-                    if peer.is_ok() {
-                        let k = LayerMessage {
-                            new_layer: layer as u8,
-                        };
-                        let g = GeneralMessage::LayerMessage(k);
-                        let msg = GeneralMessage::to_bytes(&g);
-                        let mut sender = sender.lock().await;
-                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                    }
-                } else if let KeyAction::multi_key(k) = *key_action {
-                    for key in k {
-                        keyboard.press(*key).await;
-                    }
-                    let peer = manager.fetch_peer(true);
-                    if peer.is_ok() {
-                        let m = MultiKeyMessage {
-                            press: true,
-                            key_1: k[0],
-                            key_2: k[1],
-                        };
-                        let g = GeneralMessage::MultiKeyMessage(m);
-                        let msg = GeneralMessage::to_bytes(&g);
-                        let mut sender = sender.lock().await;
-                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                    }
-                }
+                pressed = true;
+            } else if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
+                pressed = false;
+            } else {
+                continue;
             }
-            if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
-                keyswitch_pressed[i] = false;
-                if let KeyAction::key(key) = *key_action {
+            keyswitch_pressed[i] = pressed;
+
+            if let KeyAction::key(key) = *key_action {
+                if pressed {
+                    keyboard.press(key).await;
+                } else {
                     keyboard.release(key).await;
-                    let peer = manager.fetch_peer(true);
-                    if peer.is_ok() {
-                        let k = KeyMessage {
-                            press: false,
-                            key: key,
-                        };
-                        let g = GeneralMessage::KeyMessage(k);
-                        let msg = GeneralMessage::to_bytes(&g);
-                        let mut sender = sender.lock().await;
-                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                    }
-                } else if let KeyAction::layer_mo(l) = *key_action {
+                }
+                let peer = manager.fetch_peer(true);
+                if peer.is_ok() {
+                    let k = KeyMessage {
+                        press: pressed,
+                        key: key,
+                    };
+                    let g = GeneralMessage::KeyMessage(k);
+                    let msg = GeneralMessage::to_bytes(&g);
+                    let mut sender = sender.lock().await;
+                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                }
+            } else if let KeyAction::layer_mo(l) = *key_action {
+                if pressed {
+                    layer = l as usize;
+                } else {
                     layer = 0;
-                    keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
-                    let peer = manager.fetch_peer(true);
-                    if peer.is_ok() {
-                        let k = LayerMessage {
-                            new_layer: layer as u8,
-                        };
-                        let g = GeneralMessage::LayerMessage(k);
-                        let msg = GeneralMessage::to_bytes(&g);
-                        let mut sender = sender.lock().await;
-                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                    }
-                } else if let KeyAction::multi_key(k) = *key_action {
-                    for key in k {
+                }
+                keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
+                let peer = manager.fetch_peer(true);
+                if peer.is_ok() {
+                    let k = LayerMessage {
+                        new_layer: layer as u8,
+                    };
+                    let g = GeneralMessage::LayerMessage(k);
+                    let msg = GeneralMessage::to_bytes(&g);
+                    let mut sender = sender.lock().await;
+                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
+                }
+            } else if let KeyAction::multi_key(k) = *key_action {
+                for key in k {
+                    if pressed {
+                        keyboard.press(*key).await;
+                    } else {
                         keyboard.release(*key).await;
                     }
-                    let peer = manager.fetch_peer(true);
-                    if peer.is_ok() {
-                        let m = MultiKeyMessage {
-                            press: false,
-                            key_1: k[0],
-                            key_2: k[1],
-                        };
-                        let g = GeneralMessage::MultiKeyMessage(m);
-                        let msg = GeneralMessage::to_bytes(&g);
-                        let mut sender = sender.lock().await;
-                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                    }
+                }
+                let peer = manager.fetch_peer(true);
+                if peer.is_ok() {
+                    let m = MultiKeyMessage {
+                        press: pressed,
+                        key_1: k[0],
+                        key_2: k[1],
+                    };
+                    let g = GeneralMessage::MultiKeyMessage(m);
+                    let msg = GeneralMessage::to_bytes(&g);
+                    let mut sender = sender.lock().await;
+                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                 }
             }
+
+            // LED upates
 
             // if ((led_matrix[i].0 - pos) as i32).abs() < 1 {
             //     led_color_arr[i] = data_100;
@@ -652,29 +652,10 @@ async fn main(spawner: Spawner) {
             // }
         }
 
-        if let Some(new_colors) = LED_SIGNAL.try_take() {
-            if let GeneralMessage::KeyMessage(km) = new_colors {
-                if km.press {
-                    keyboard.press(km.key).await;
-                } else {
-                    keyboard.release(km.key).await;
-                }
-            } else if let GeneralMessage::LayerMessage(lm) = new_colors {
-                layer = lm.new_layer as usize;
-                keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
-            } else if let GeneralMessage::MultiKeyMessage(km) = new_colors {
-                if km.press {
-                    keyboard.press(km.key_1).await;
-                    keyboard.press(km.key_2).await;
-                } else {
-                    keyboard.release(km.key_1).await;
-                    keyboard.release(km.key_2).await;
-                }
-            }
-        }
-
+        // Write LEDs
         led.write(brightness(gamma(led_color_arr.into_iter()), level))
             .unwrap();
+
         // Yield here is required. Without it, there is significant lag, presumably because the HID task doesn't get adequate runtime
         Timer::after(Duration::from_millis(5)).await;
     }
