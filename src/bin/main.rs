@@ -204,10 +204,18 @@ async fn main(spawner: Spawner) {
         sat: 255,
         val: 255,
     };
+    let mut color_off = Hsv {
+        hue: 100,
+        sat: 255,
+        val: 0,
+    };
     let mut data_red: RGB8;
     let mut data_100: RGB8;
+    let mut data_off: RGB8;
+
     data_red = hsv2rgb(color_red);
     data_100 = hsv2rgb(color_100);
+    data_off = hsv2rgb(color_off);
     let level = 10;
 
     // Setup HID task
@@ -254,7 +262,7 @@ async fn main(spawner: Spawner) {
     let mut pin = config.enable_pin(peripherals.GPIO1, Attenuation::_11dB);
     let mut adc1 = Adc::new(peripherals.ADC1, config);
 
-    let mut led_color_arr = [data_red; NUM_KEYS];
+    let mut led_color_arr = [data_off; NUM_KEYS];
 
     #[cfg(not(feature = "left"))]
     let layer_1 = [
@@ -638,11 +646,11 @@ async fn main(spawner: Spawner) {
             //     led_color_arr[i] = data_red;
             // }
 
-            if keyswitch_pressed[i] {
-                led_color_arr[key_to_led[i]] = data_100;
-            } else {
-                led_color_arr[key_to_led[i]] = data_red;
-            }
+            //if keyswitch_pressed[i] {
+            //    led_color_arr[key_to_led[i]] = data_100;
+            //} else {
+            //    led_color_arr[key_to_led[i]] = data_off;
+            //}
 
             // if pgood.is_high(){
             //     led_color_arr[i] = data_100;
