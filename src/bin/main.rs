@@ -550,6 +550,7 @@ async fn main(spawner: Spawner) {
                     layer_1[layer][key_matrix[i].1][key_matrix[i].0]
                 {
                     layer = l as usize;
+                    keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
                     let peer = manager.fetch_peer(true);
                     if peer.is_ok() {
                         let k = LayerMessage {
@@ -599,6 +600,7 @@ async fn main(spawner: Spawner) {
                     layer_1[layer][key_matrix[i].1][key_matrix[i].0]
                 {
                     layer = 0;
+                    keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
                     let peer = manager.fetch_peer(true);
                     if peer.is_ok() {
                         let k = LayerMessage {
@@ -664,6 +666,7 @@ async fn main(spawner: Spawner) {
                 }
             } else if let GeneralMessage::LayerMessage(lm) = new_colors {
                 layer = lm.new_layer as usize;
+                    keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
             } else if let GeneralMessage::MultiKeyMessage(km) = new_colors {
                 if km.press {
                     keyboard.press(km.key_1).await;
