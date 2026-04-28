@@ -40,8 +40,8 @@ struct KeyMessage {
 }
 
 impl KeyMessage {
-    pub fn to_bytes(&self) -> [u8; 2] {
-        [self.press as u8, self.key]
+    pub fn to_bytes(&self) -> [u8; 3] {
+        [self.press as u8, self.key, 0]
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 2 {
@@ -54,13 +54,35 @@ impl KeyMessage {
     }
 }
 
+struct MultiKeyMessage {
+    press: bool,
+    key_1: u8,
+    key_2: u8,
+}
+
+impl MultiKeyMessage {
+    pub fn to_bytes(&self) -> [u8; 3] {
+        [self.press as u8, self.key_1, self.key_2]
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 3 {
+            return None;
+        }
+        Some(Self {
+            press: bytes[0] != 0,
+            key_1: bytes[1],
+            key_2: bytes[2],
+        })
+    }
+}
+
 struct LayerMessage {
     new_layer: u8,
 }
 
 impl LayerMessage {
-    pub fn to_bytes(&self) -> [u8; 2] {
-        [self.new_layer as u8, 0]
+    pub fn to_bytes(&self) -> [u8; 3] {
+        [self.new_layer as u8, 0, 0]
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 1 {
@@ -75,17 +97,23 @@ impl LayerMessage {
 enum GeneralMessage {
     KeyMessage(KeyMessage),
     LayerMessage(LayerMessage),
+    MultiKeyMessage(MultiKeyMessage),
 }
 
 impl GeneralMessage {
-    pub fn to_bytes(&self) -> [u8; 3] {
+    pub fn to_bytes(&self) -> [u8; 4] {
         match self {
-            GeneralMessage::KeyMessage(m) => [0, m.to_bytes()[0], m.to_bytes()[1]],
-            GeneralMessage::LayerMessage(m) => [1, m.to_bytes()[0], m.to_bytes()[1]],
+            GeneralMessage::KeyMessage(m) => [0, m.to_bytes()[0], m.to_bytes()[1], m.to_bytes()[2]],
+            GeneralMessage::LayerMessage(m) => {
+                [1, m.to_bytes()[0], m.to_bytes()[1], m.to_bytes()[2]]
+            }
+            GeneralMessage::MultiKeyMessage(m) => {
+                [2, m.to_bytes()[0], m.to_bytes()[1], m.to_bytes()[2]]
+            }
         }
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 3 {
+        if bytes.len() < 4 {
             return None;
         }
         return match bytes[0] {
@@ -94,6 +122,9 @@ impl GeneralMessage {
             )),
             1 => Some(GeneralMessage::LayerMessage(
                 LayerMessage::from_bytes(&bytes[1..]).unwrap(),
+            )),
+            2 => Some(GeneralMessage::MultiKeyMessage(
+                MultiKeyMessage::from_bytes(&bytes[1..]).unwrap(),
             )),
             _ => None,
         };
@@ -534,17 +565,19 @@ async fn main(spawner: Spawner) {
                 {
                     for key in k {
                         keyboard.press(*key).await;
-                        let peer = manager.fetch_peer(true);
-                        let k = KeyMessage {
+                    }
+                    let peer = manager.fetch_peer(true);
+                    if peer.is_ok() {
+                        let m = MultiKeyMessage {
                             press: true,
-                            key: *key,
+                            key_1: k[0],
+                            key_2: k[1],
                         };
-                        let g = GeneralMessage::KeyMessage(k);
+                        let g = GeneralMessage::MultiKeyMessage(m);
                         let msg = GeneralMessage::to_bytes(&g);
                         let mut sender = sender.lock().await;
                         let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                     }
-                    
                 }
             }
             if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
@@ -581,17 +614,18 @@ async fn main(spawner: Spawner) {
                 {
                     for key in k {
                         keyboard.release(*key).await;
-                        let peer = manager.fetch_peer(true);
-                        if peer.is_ok() {
-                            let k = KeyMessage {
-                                press: false,
-                                key: *key,
-                            };
-                            let g = GeneralMessage::KeyMessage(k);
-                            let msg = GeneralMessage::to_bytes(&g);
-                            let mut sender = sender.lock().await;
-                            let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                        }
+                    }
+                    let peer = manager.fetch_peer(true);
+                    if peer.is_ok() {
+                        let m = MultiKeyMessage {
+                            press: false,
+                            key_1: k[0],
+                            key_2: k[1],
+                        };
+                        let g = GeneralMessage::MultiKeyMessage(m);
+                        let msg = GeneralMessage::to_bytes(&g);
+                        let mut sender = sender.lock().await;
+                        let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                     }
                 }
             }
@@ -630,6 +664,14 @@ async fn main(spawner: Spawner) {
                 }
             } else if let GeneralMessage::LayerMessage(lm) = new_colors {
                 layer = lm.new_layer as usize;
+            } else if let GeneralMessage::MultiKeyMessage(km) = new_colors {
+                if km.press {
+                    keyboard.press(km.key_1).await;
+                    keyboard.press(km.key_2).await;
+                } else {
+                    keyboard.release(km.key_1).await;
+                    keyboard.release(km.key_2).await;
+                }
             }
         }
 
