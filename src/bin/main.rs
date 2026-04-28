@@ -31,6 +31,9 @@ use smart_leds::{
     hsv::{Hsv, hsv2rgb},
 };
 
+const CONTENT_LEN: usize = 3;
+const PACKET_LEN: usize = CONTENT_LEN + 1;
+
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -40,7 +43,7 @@ struct KeyMessage {
 }
 
 impl KeyMessage {
-    pub fn to_bytes(&self) -> [u8; 3] {
+    pub fn to_bytes(&self) -> [u8; CONTENT_LEN] {
         [self.press as u8, self.key, 0]
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -61,7 +64,7 @@ struct MultiKeyMessage {
 }
 
 impl MultiKeyMessage {
-    pub fn to_bytes(&self) -> [u8; 3] {
+    pub fn to_bytes(&self) -> [u8; CONTENT_LEN] {
         [self.press as u8, self.key_1, self.key_2]
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -81,7 +84,7 @@ struct LayerMessage {
 }
 
 impl LayerMessage {
-    pub fn to_bytes(&self) -> [u8; 3] {
+    pub fn to_bytes(&self) -> [u8; CONTENT_LEN] {
         [self.new_layer as u8, 0, 0]
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -101,7 +104,7 @@ enum GeneralMessage {
 }
 
 impl GeneralMessage {
-    pub fn to_bytes(&self) -> [u8; 4] {
+    pub fn to_bytes(&self) -> [u8; PACKET_LEN] {
         match self {
             GeneralMessage::KeyMessage(m) => [0, m.to_bytes()[0], m.to_bytes()[1], m.to_bytes()[2]],
             GeneralMessage::LayerMessage(m) => {
@@ -113,7 +116,7 @@ impl GeneralMessage {
         }
     }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 4 {
+        if bytes.len() < PACKET_LEN {
             return None;
         }
         return match bytes[0] {
@@ -558,6 +561,7 @@ async fn main(spawner: Spawner) {
 
         // Key loop
         for i in 0..NUM_KEYS {
+            let mut msg: Option<[u8; PACKET_LEN]> = None;
             let key_action = &layer_1[layer][key_matrix[i].1][key_matrix[i].0];
             let mut pressed = true;
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
@@ -575,17 +579,12 @@ async fn main(spawner: Spawner) {
                 } else {
                     keyboard.release(key).await;
                 }
-                let peer = manager.fetch_peer(true);
-                if peer.is_ok() {
-                    let k = KeyMessage {
-                        press: pressed,
-                        key: key,
-                    };
-                    let g = GeneralMessage::KeyMessage(k);
-                    let msg = GeneralMessage::to_bytes(&g);
-                    let mut sender = sender.lock().await;
-                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                }
+                let k = KeyMessage {
+                    press: pressed,
+                    key: key,
+                };
+                let g = GeneralMessage::KeyMessage(k);
+                msg = Some(GeneralMessage::to_bytes(&g));
             } else if let KeyAction::layer_mo(l) = *key_action {
                 if pressed {
                     layer = l as usize;
@@ -593,16 +592,11 @@ async fn main(spawner: Spawner) {
                     layer = 0;
                 }
                 keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
-                let peer = manager.fetch_peer(true);
-                if peer.is_ok() {
-                    let k = LayerMessage {
-                        new_layer: layer as u8,
-                    };
-                    let g = GeneralMessage::LayerMessage(k);
-                    let msg = GeneralMessage::to_bytes(&g);
-                    let mut sender = sender.lock().await;
-                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                }
+                let k = LayerMessage {
+                    new_layer: layer as u8,
+                };
+                let g = GeneralMessage::LayerMessage(k);
+                msg = Some(GeneralMessage::to_bytes(&g));
             } else if let KeyAction::multi_key(k) = *key_action {
                 for key in k {
                     if pressed {
@@ -611,18 +605,21 @@ async fn main(spawner: Spawner) {
                         keyboard.release(*key).await;
                     }
                 }
-                let peer = manager.fetch_peer(true);
-                if peer.is_ok() {
-                    let m = MultiKeyMessage {
-                        press: pressed,
-                        key_1: k[0],
-                        key_2: k[1],
-                    };
-                    let g = GeneralMessage::MultiKeyMessage(m);
-                    let msg = GeneralMessage::to_bytes(&g);
-                    let mut sender = sender.lock().await;
-                    let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
-                }
+                let m = MultiKeyMessage {
+                    press: pressed,
+                    key_1: k[0],
+                    key_2: k[1],
+                };
+                let g = GeneralMessage::MultiKeyMessage(m);
+                msg = Some(GeneralMessage::to_bytes(&g));
+            }
+
+            let peer = manager.fetch_peer(true);
+            if peer.is_ok() && !msg.is_none() {
+                let mut sender = sender.lock().await;
+                let status = sender
+                    .send_async(&peer.unwrap().peer_address, &msg.unwrap())
+                    .await;
             }
 
             // LED upates
