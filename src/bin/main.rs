@@ -530,18 +530,13 @@ async fn main(spawner: Spawner) {
     ];
 
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
-    let mut percent = 0;
     loop {
-        percent += 1;
-        if percent > 100 {
-            percent = 0;
-        }
         let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64 / 400.0;
-        // let pos = (percent / 10) - 2;
         for i in 0..NUM_KEYS {
+            let key_action = &layer_1[layer][key_matrix[i].1][key_matrix[i].0];
             if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
                 keyswitch_pressed[i] = true;
-                if let KeyAction::key(key) = layer_1[layer][key_matrix[i].1][key_matrix[i].0] {
+                if let KeyAction::key(key) = *key_action {
                     keyboard.press(key).await;
                     let peer = manager.fetch_peer(true);
                     if peer.is_ok() {
@@ -554,9 +549,7 @@ async fn main(spawner: Spawner) {
                         let mut sender = sender.lock().await;
                         let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                     }
-                } else if let KeyAction::layer_mo(l) =
-                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
-                {
+                } else if let KeyAction::layer_mo(l) = *key_action {
                     layer = l as usize;
                     keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
                     let peer = manager.fetch_peer(true);
@@ -569,9 +562,7 @@ async fn main(spawner: Spawner) {
                         let mut sender = sender.lock().await;
                         let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                     }
-                } else if let KeyAction::multi_key(k) =
-                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
-                {
+                } else if let KeyAction::multi_key(k) = *key_action {
                     for key in k {
                         keyboard.press(*key).await;
                     }
@@ -591,7 +582,7 @@ async fn main(spawner: Spawner) {
             }
             if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
                 keyswitch_pressed[i] = false;
-                if let KeyAction::key(key) = layer_1[layer][key_matrix[i].1][key_matrix[i].0] {
+                if let KeyAction::key(key) = *key_action {
                     keyboard.release(key).await;
                     let peer = manager.fetch_peer(true);
                     if peer.is_ok() {
@@ -604,9 +595,7 @@ async fn main(spawner: Spawner) {
                         let mut sender = sender.lock().await;
                         let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                     }
-                } else if let KeyAction::layer_mo(l) =
-                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
-                {
+                } else if let KeyAction::layer_mo(l) = *key_action {
                     layer = 0;
                     keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
                     let peer = manager.fetch_peer(true);
@@ -619,9 +608,7 @@ async fn main(spawner: Spawner) {
                         let mut sender = sender.lock().await;
                         let status = sender.send_async(&peer.unwrap().peer_address, &msg).await;
                     }
-                } else if let KeyAction::multi_key(k) =
-                    layer_1[layer][key_matrix[i].1][key_matrix[i].0]
-                {
+                } else if let KeyAction::multi_key(k) = *key_action {
                     for key in k {
                         keyboard.release(*key).await;
                     }
@@ -674,7 +661,7 @@ async fn main(spawner: Spawner) {
                 }
             } else if let GeneralMessage::LayerMessage(lm) = new_colors {
                 layer = lm.new_layer as usize;
-                    keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
+                keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
             } else if let GeneralMessage::MultiKeyMessage(km) = new_colors {
                 if km.press {
                     keyboard.press(km.key_1).await;
