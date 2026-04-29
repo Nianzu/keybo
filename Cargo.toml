@@ -25,7 +25,8 @@ esp-alloc        = "0.9.0"
 
 critical-section = "1.2.0"
 static_cell      = "2.1.1"
-esp32_hid = "0.1.0"
+esp32_hid = {path = "../esp32_hid"}
+#esp32_hid = "0.1.0"
 esp-backtrace = {version ="0.18.1", features = ["esp32s3", "println", "panic-handler"]}
 esp-hal-smartled = "0.17.0"
 smart-leds = "0.4.0"

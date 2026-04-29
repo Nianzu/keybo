@@ -861,8 +861,6 @@ dependencies = [
 [[package]]
 name = "esp32_hid"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93a228b339b21475188f12052c1d68f9e174859b045397b1f1f2992f9849b152"
 dependencies = [
  "embassy-executor",
  "embassy-sync 0.7.2",
