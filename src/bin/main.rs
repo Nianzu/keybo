@@ -547,14 +547,14 @@ async fn main(spawner: Spawner) {
                 }
             } else if let GeneralMessage::LayerMessage(lm) = new_colors {
                 layer = lm.new_layer as usize;
-                keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
+                keyboard.clear().await;
             } else if let GeneralMessage::MultiKeyMessage(km) = new_colors {
                 if km.press {
                     keyboard.press(km.key_1).await;
                     keyboard.press(km.key_2).await;
                 } else {
-                    keyboard.release(km.key_1).await;
                     keyboard.release(km.key_2).await;
+                    keyboard.release(km.key_1).await;
                 }
             }
         }
@@ -591,19 +591,19 @@ async fn main(spawner: Spawner) {
                 } else {
                     layer = 0;
                 }
-                keyboard.release(keycodes::HID_KEY_SHIFT_LEFT).await;
+                keyboard.clear().await;
                 let k = LayerMessage {
                     new_layer: layer as u8,
                 };
                 let g = GeneralMessage::LayerMessage(k);
                 msg = Some(GeneralMessage::to_bytes(&g));
             } else if let KeyAction::multi_key(k) = *key_action {
-                for key in k {
-                    if pressed {
-                        keyboard.press(*key).await;
-                    } else {
-                        keyboard.release(*key).await;
-                    }
+                if pressed {
+                    keyboard.press(k[0]).await;
+                    keyboard.press(k[1]).await;
+                } else {
+                    keyboard.release(k[1]).await;
+                    keyboard.release(k[0]).await;
                 }
                 let m = MultiKeyMessage {
                     press: pressed,
