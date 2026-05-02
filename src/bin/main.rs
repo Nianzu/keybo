@@ -534,6 +534,7 @@ async fn main(spawner: Spawner) {
 
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
     loop {
+	let mut leds_dirty = false;
         // Sensor input
         let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64 / 400.0;
 
@@ -650,8 +651,10 @@ async fn main(spawner: Spawner) {
         }
 
         // Write LEDs
+	if leds_dirty {
         led.write(brightness(gamma(led_color_arr.into_iter()), level))
             .unwrap();
+	}
 
         // Yield here is required. Without it, there is significant lag, presumably because the HID task doesn't get adequate runtime
         Timer::after(Duration::from_millis(5)).await;
