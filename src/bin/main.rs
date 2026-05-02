@@ -182,6 +182,7 @@ async fn main(spawner: Spawner) {
     let (mut controller, interfaces) =
         esp_radio::wifi::new(&esp_radio_ctrl, wifi, Default::default()).unwrap();
     controller.set_mode(esp_radio::wifi::WifiMode::Sta).unwrap();
+    controller.set_power_saving(esp_radio::wifi::PowerSaveMode::Minimum).unwrap();
     controller.start().unwrap();
     let esp_now = interfaces.esp_now;
     esp_now.set_channel(11).unwrap();
@@ -676,7 +677,7 @@ async fn broadcaster(sender: &'static Mutex<CriticalSectionRawMutex, EspNowSende
         Timer::after(Duration::from_millis(500)).await;
 
         let mut sender = sender.lock().await;
-        let status = sender.send_async(&BROADCAST_ADDRESS, b"Hello.").await;
+        // let status = sender.send_async(&BROADCAST_ADDRESS, b"Hello.").await;
     }
 }
 
