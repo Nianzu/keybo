@@ -3,16 +3,18 @@
 
 use esp32_hid::{hid_config::HidConfig, keyboard::Keyboard, keycodes};
 extern crate alloc;
+use core::cell::RefCell;
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex, signal::Signal};
+use embassy_sync::blocking_mutex::{Mutex as BlockingMutex, raw::CriticalSectionRawMutex};
+use embassy_sync::{channel::Channel, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::efuse::Efuse;
 use esp_hal::{
     analog::adc::{Adc, AdcConfig, Attenuation},
     clock::CpuClock,
-    gpio::{Input, InputConfig, Pull},
+    gpio::{Event, Input, InputConfig, Io, Pull},
+    interrupt::{InterruptHandler, Priority},
     otg_fs::Usb,
     peripherals::{ADC1, TIMG1},
     timer::timg::{MwdtStage, MwdtStageAction, TimerGroup, Wdt},
@@ -25,14 +27,23 @@ use esp_radio::esp_now::{
 };
 use esp_rtos::main;
 use esp32_hid::mk_static;
-use nb::block;
-use smart_leds::{
-    RGB8, SmartLedsWrite, brightness, gamma,
-    hsv::{Hsv, hsv2rgb},
-};
 
 const CONTENT_LEN: usize = 3;
 const PACKET_LEN: usize = CONTENT_LEN + 1;
+const NUM_KEYS: usize = 21;
+const KEY_EVENT_BUFFER: usize = 64;
+
+struct KeyEvent {
+    index: u8,
+    pressed: bool,
+}
+
+static KEY_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, KeyEvent, KEY_EVENT_BUFFER> =
+    Channel::new();
+static KEY_INPUTS: BlockingMutex<
+    CriticalSectionRawMutex,
+    RefCell<Option<[Input<'static>; NUM_KEYS]>>,
+> = BlockingMutex::new(RefCell::new(None));
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -142,6 +153,27 @@ enum KeyAction<'a> {
 
 static LED_SIGNAL: Signal<CriticalSectionRawMutex, GeneralMessage> = Signal::new();
 
+extern "C" fn gpio_interrupt_handler() {
+    KEY_INPUTS.lock(|key_inputs| {
+        let mut key_inputs = key_inputs.borrow_mut();
+        let inputs = match key_inputs.as_mut() {
+            Some(inputs) => inputs,
+            None => return,
+        };
+
+        for (i, input) in inputs.iter_mut().enumerate() {
+            if input.is_interrupt_set() {
+                let pressed = input.is_high();
+                input.clear_interrupt();
+                let _ = KEY_EVENT_CHANNEL.sender().try_send(KeyEvent {
+                    index: i as u8,
+                    pressed,
+                });
+            }
+        }
+    });
+}
+
 #[main]
 async fn main(spawner: Spawner) {
     let mut layer = 0;
@@ -159,9 +191,9 @@ async fn main(spawner: Spawner) {
     .expect("Failed to initialize RMT");
 
     let rmt_channel = rmt.channel0;
-    let mut rmt_buffer = smart_led_buffer!(21);
+    let mut _rmt_buffer = smart_led_buffer!(21);
 
-    let mut led = SmartLedsAdapter::new(rmt_channel, peripherals.GPIO37, &mut rmt_buffer);
+    let mut _led = SmartLedsAdapter::new(rmt_channel, peripherals.GPIO37, &mut _rmt_buffer);
 
     // Setup Embassy
     // (RTOS required for radio and async)
@@ -182,7 +214,9 @@ async fn main(spawner: Spawner) {
     let (mut controller, interfaces) =
         esp_radio::wifi::new(&esp_radio_ctrl, wifi, Default::default()).unwrap();
     controller.set_mode(esp_radio::wifi::WifiMode::Sta).unwrap();
-    controller.set_power_saving(esp_radio::wifi::PowerSaveMode::Minimum).unwrap();
+    controller
+        .set_power_saving(esp_radio::wifi::PowerSaveMode::Minimum)
+        .unwrap();
     controller.start().unwrap();
     let esp_now = interfaces.esp_now;
     esp_now.set_channel(11).unwrap();
@@ -198,30 +232,6 @@ async fn main(spawner: Spawner) {
     // Start watchdog task
     spawner.must_spawn(watchdog_task(wdt1));
 
-    let mut color_red = Hsv {
-        hue: 0,
-        sat: 255,
-        val: 255,
-    };
-    let mut color_100 = Hsv {
-        hue: 100,
-        sat: 255,
-        val: 255,
-    };
-    let mut color_off = Hsv {
-        hue: 100,
-        sat: 255,
-        val: 0,
-    };
-    let mut data_red: RGB8;
-    let mut data_100: RGB8;
-    let mut data_off: RGB8;
-
-    data_red = hsv2rgb(color_red);
-    data_100 = hsv2rgb(color_100);
-    data_off = hsv2rgb(color_off);
-    let level = 10;
-
     // Setup HID task
     // Uses USB GPIOs
     let usb = Usb::new(peripherals.USB0, peripherals.GPIO20, peripherals.GPIO19);
@@ -231,42 +241,60 @@ async fn main(spawner: Spawner) {
     // https://docs.espressif.com/projects/rust/esp-hal/1.0.0-beta.0/esp32/esp_hal/gpio/struct.Input.html
     let config = InputConfig::default().with_pull(Pull::Down);
 
-    const NUM_KEYS: usize = 21;
-    let keyswitch_arr: [esp_hal::gpio::Input; NUM_KEYS] = [
-        Input::new(peripherals.GPIO2, config),
-        Input::new(peripherals.GPIO3, config),
-        Input::new(peripherals.GPIO4, config),
-        Input::new(peripherals.GPIO5, config),
-        Input::new(peripherals.GPIO6, config),
-        Input::new(peripherals.GPIO7, config),
-        Input::new(peripherals.GPIO8, config),
-        Input::new(peripherals.GPIO9, config),
-        Input::new(peripherals.GPIO10, config),
-        Input::new(peripherals.GPIO11, config),
-        Input::new(peripherals.GPIO12, config),
-        Input::new(peripherals.GPIO13, config),
-        Input::new(peripherals.GPIO14, config),
-        Input::new(peripherals.GPIO17, config),
-        Input::new(peripherals.GPIO18, config),
-        Input::new(peripherals.GPIO21, config),
-        Input::new(peripherals.GPIO38, config),
-        Input::new(peripherals.GPIO45, config),
-        Input::new(peripherals.GPIO46, config),
-        Input::new(peripherals.GPIO47, config),
-        Input::new(peripherals.GPIO48, config),
-    ];
+    let keyswitch_arr: [Input<'static>; NUM_KEYS] = unsafe {
+        core::mem::transmute([
+            Input::new(peripherals.GPIO2, config),
+            Input::new(peripherals.GPIO3, config),
+            Input::new(peripherals.GPIO4, config),
+            Input::new(peripherals.GPIO5, config),
+            Input::new(peripherals.GPIO6, config),
+            Input::new(peripherals.GPIO7, config),
+            Input::new(peripherals.GPIO8, config),
+            Input::new(peripherals.GPIO9, config),
+            Input::new(peripherals.GPIO10, config),
+            Input::new(peripherals.GPIO11, config),
+            Input::new(peripherals.GPIO12, config),
+            Input::new(peripherals.GPIO13, config),
+            Input::new(peripherals.GPIO14, config),
+            Input::new(peripherals.GPIO17, config),
+            Input::new(peripherals.GPIO18, config),
+            Input::new(peripherals.GPIO21, config),
+            Input::new(peripherals.GPIO38, config),
+            Input::new(peripherals.GPIO45, config),
+            Input::new(peripherals.GPIO46, config),
+            Input::new(peripherals.GPIO47, config),
+            Input::new(peripherals.GPIO48, config),
+        ])
+    };
+
+    let mut io = Io::new(peripherals.IO_MUX);
+    io.set_interrupt_handler(InterruptHandler::new(
+        gpio_interrupt_handler,
+        Priority::Priority1,
+    ));
+
+    KEY_INPUTS.lock(|key_inputs| {
+        let mut key_inputs = key_inputs.borrow_mut();
+        *key_inputs = Some(keyswitch_arr);
+
+        if let Some(inputs) = key_inputs.as_mut() {
+            for input in inputs.iter_mut() {
+                input.listen(Event::AnyEdge);
+            }
+        }
+    });
+
+    let key_receiver = KEY_EVENT_CHANNEL.receiver();
 
     let config = InputConfig::default().with_pull(Pull::Up);
-    let pgood = Input::new(peripherals.GPIO35, config);
-    let key_to_led = [
+    let _pgood = Input::new(peripherals.GPIO35, config);
+    let _key_to_led = [
         18, 10, 5, 4, 3, 2, 11, 8, 7, 6, 17, 16, 15, 1, 0, 14, 19, 20, 9, 13, 12,
     ];
-    let mut config: AdcConfig<ADC1> = AdcConfig::new();
+    let mut _adc_config: AdcConfig<ADC1> = AdcConfig::new();
 
-    let mut pin = config.enable_pin(peripherals.GPIO1, Attenuation::_11dB);
-    let mut adc1 = Adc::new(peripherals.ADC1, config);
-
-    let mut led_color_arr = [data_off; NUM_KEYS];
+    let mut _pin = _adc_config.enable_pin(peripherals.GPIO1, Attenuation::_11dB);
+    let mut _adc1 = Adc::new(peripherals.ADC1, _adc_config);
 
     #[cfg(not(feature = "left"))]
     let layer_1 = [
@@ -486,7 +514,7 @@ async fn main(spawner: Spawner) {
         ],
     ];
 
-    let led_matrix = [
+    let _led_matrix = [
         (5, 0),
         (4, 0),
         (3, 0),
@@ -535,10 +563,6 @@ async fn main(spawner: Spawner) {
 
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
     loop {
-	let mut leds_dirty = false;
-        // Sensor input
-        let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64 / 400.0;
-
         // Process data from other keyboard
         if let Some(new_colors) = LED_SIGNAL.try_take() {
             if let GeneralMessage::KeyMessage(km) = new_colors {
@@ -561,101 +585,66 @@ async fn main(spawner: Spawner) {
             }
         }
 
-        // Key loop
-        for i in 0..NUM_KEYS {
-            let mut msg: Option<[u8; PACKET_LEN]> = None;
-            let key_action = &layer_1[layer][key_matrix[i].1][key_matrix[i].0];
-            let mut pressed = true;
-            if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
-                pressed = true;
-            } else if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
-                pressed = false;
-            } else {
-                continue;
-            }
-            keyswitch_pressed[i] = pressed;
+        if let Ok(event) = key_receiver.try_receive() {
+            let i = event.index as usize;
+            if i < NUM_KEYS {
+                let pressed = event.pressed;
+                if keyswitch_pressed[i] != pressed {
+                    keyswitch_pressed[i] = pressed;
 
-            if let KeyAction::key(key) = *key_action {
-                if pressed {
-                    keyboard.press(key).await;
-                } else {
-                    keyboard.release(key).await;
+                    let mut msg: Option<[u8; PACKET_LEN]> = None;
+                    let key_action = &layer_1[layer][key_matrix[i].1][key_matrix[i].0];
+
+                    if let KeyAction::key(key) = *key_action {
+                        if pressed {
+                            keyboard.press(key).await;
+                        } else {
+                            keyboard.release(key).await;
+                        }
+                        let k = KeyMessage {
+                            press: pressed,
+                            key,
+                        };
+                        let g = GeneralMessage::KeyMessage(k);
+                        msg = Some(GeneralMessage::to_bytes(&g));
+                    } else if let KeyAction::layer_mo(l) = *key_action {
+                        if pressed {
+                            layer = l as usize;
+                        } else {
+                            layer = 0;
+                        }
+                        keyboard.clear().await;
+                        let k = LayerMessage {
+                            new_layer: layer as u8,
+                        };
+                        let g = GeneralMessage::LayerMessage(k);
+                        msg = Some(GeneralMessage::to_bytes(&g));
+                    } else if let KeyAction::multi_key(k) = *key_action {
+                        if pressed {
+                            keyboard.press(k[0]).await;
+                            keyboard.press(k[1]).await;
+                        } else {
+                            keyboard.release(k[1]).await;
+                            keyboard.release(k[0]).await;
+                        }
+                        let m = MultiKeyMessage {
+                            press: pressed,
+                            key_1: k[0],
+                            key_2: k[1],
+                        };
+                        let g = GeneralMessage::MultiKeyMessage(m);
+                        msg = Some(GeneralMessage::to_bytes(&g));
+                    }
+
+                    if let Some(msg) = msg {
+                        if let Ok(peer) = manager.fetch_peer(true) {
+                            let mut sender_guard = sender.lock().await;
+                            let _ = sender_guard.send_async(&peer.peer_address, &msg).await;
+                        }
+                    }
                 }
-                let k = KeyMessage {
-                    press: pressed,
-                    key: key,
-                };
-                let g = GeneralMessage::KeyMessage(k);
-                msg = Some(GeneralMessage::to_bytes(&g));
-            } else if let KeyAction::layer_mo(l) = *key_action {
-                if pressed {
-                    layer = l as usize;
-                } else {
-                    layer = 0;
-                }
-                keyboard.clear().await;
-                let k = LayerMessage {
-                    new_layer: layer as u8,
-                };
-                let g = GeneralMessage::LayerMessage(k);
-                msg = Some(GeneralMessage::to_bytes(&g));
-            } else if let KeyAction::multi_key(k) = *key_action {
-                if pressed {
-                    keyboard.press(k[0]).await;
-                    keyboard.press(k[1]).await;
-                } else {
-                    keyboard.release(k[1]).await;
-                    keyboard.release(k[0]).await;
-                }
-                let m = MultiKeyMessage {
-                    press: pressed,
-                    key_1: k[0],
-                    key_2: k[1],
-                };
-                let g = GeneralMessage::MultiKeyMessage(m);
-                msg = Some(GeneralMessage::to_bytes(&g));
             }
-
-            let peer = manager.fetch_peer(true);
-            if peer.is_ok() && !msg.is_none() {
-                let mut sender = sender.lock().await;
-                let status = sender
-                    .send_async(&peer.unwrap().peer_address, &msg.unwrap())
-                    .await;
-            }
-
-            // LED upates
-
-            // if ((led_matrix[i].0 - pos) as i32).abs() < 1 {
-            //     led_color_arr[i] = data_100;
-            // } else {
-            //     led_color_arr[i] = data_red;
-            // }
-
-            //if keyswitch_pressed[i] {
-            //    led_color_arr[key_to_led[i]] = data_100;
-            //} else {
-            //    led_color_arr[key_to_led[i]] = data_off;
-            //}
-
-            // if pgood.is_high(){
-            //     led_color_arr[i] = data_100;
-            // } else {
-            //     led_color_arr[i] = data_red;
-            // }
-
-            // if (i as f64) < pos {
-            //     led_color_arr[i] = data_100;
-            // } else {
-            //     led_color_arr[i] = data_red;
-            // }
         }
-
-        // Write LEDs
-	if leds_dirty {
-        led.write(brightness(gamma(led_color_arr.into_iter()), level))
-            .unwrap();
-	}
 
         // Yield here is required. Without it, there is significant lag, presumably because the HID task doesn't get adequate runtime
         Timer::after(Duration::from_millis(5)).await;
@@ -676,8 +665,8 @@ async fn broadcaster(sender: &'static Mutex<CriticalSectionRawMutex, EspNowSende
     loop {
         Timer::after(Duration::from_millis(500)).await;
 
-        let mut sender = sender.lock().await;
-        // let status = sender.send_async(&BROADCAST_ADDRESS, b"Hello.").await;
+        let _sender = sender.lock().await;
+        // let status = _sender.send_async(&BROADCAST_ADDRESS, b"Hello.").await;
     }
 }
 
