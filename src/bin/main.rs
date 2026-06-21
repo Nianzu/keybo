@@ -677,7 +677,7 @@ async fn broadcaster(sender: &'static Mutex<CriticalSectionRawMutex, EspNowSende
         Timer::after(Duration::from_millis(500)).await;
 
         let mut sender = sender.lock().await;
-        // let status = sender.send_async(&BROADCAST_ADDRESS, b"Hello.").await;
+        let status = sender.send_async(&BROADCAST_ADDRESS, b"Hello.").await;
     }
 }
 
