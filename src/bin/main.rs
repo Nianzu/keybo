@@ -563,11 +563,8 @@ async fn main(spawner: Spawner) {
 
         // Key loop
         for i in 0..NUM_KEYS {
-            let mut pressed = true;
-            let keyswitch_high = keyswitch_arr[i].is_high();
-            if (keyswitch_high && !keyswitch_pressed[i]) || (!keyswitch_high && keyswitch_pressed[i]) {
-                pressed = keyswitch_high;
-            } else {
+            let pressed = keyswitch_arr[i].is_high();
+            if (pressed && keyswitch_pressed[i]) || (!pressed && !keyswitch_pressed[i]) {
                 continue;
             }
             keyswitch_pressed[i] = pressed;
