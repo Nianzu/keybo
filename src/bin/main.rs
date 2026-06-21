@@ -34,6 +34,9 @@ use smart_leds::{
 const CONTENT_LEN: usize = 3;
 const PACKET_LEN: usize = CONTENT_LEN + 1;
 
+const MAX_RETRY_SEND: usize = 10;
+
+
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -618,9 +621,18 @@ async fn main(spawner: Spawner) {
             let peer = manager.fetch_peer(true);
             if peer.is_ok() && !msg.is_none() {
                 let mut sender = sender.lock().await;
-                let status = sender
-                    .send_async(&peer.unwrap().peer_address, &msg.unwrap())
-                    .await;
+                let mut num_attempt = 0;
+                let addr = &peer.unwrap().peer_address;
+                loop 
+                {
+                    num_attempt += 1;
+                    let status = sender
+                        .send_async(addr, &msg.unwrap())
+                        .await;
+                    if status.is_ok() {break;}
+                    if num_attempt >= MAX_RETRY_SEND {break;}
+                    
+                }
             }
 
             // LED upates
