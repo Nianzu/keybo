@@ -182,7 +182,9 @@ async fn main(spawner: Spawner) {
     let (mut controller, interfaces) =
         esp_radio::wifi::new(&esp_radio_ctrl, wifi, Default::default()).unwrap();
     controller.set_mode(esp_radio::wifi::WifiMode::Sta).unwrap();
-    controller.set_power_saving(esp_radio::wifi::PowerSaveMode::Minimum).unwrap();
+    controller
+        .set_power_saving(esp_radio::wifi::PowerSaveMode::Minimum)
+        .unwrap();
     controller.start().unwrap();
     let esp_now = interfaces.esp_now;
     esp_now.set_channel(11).unwrap();
@@ -535,9 +537,9 @@ async fn main(spawner: Spawner) {
 
     let mut keyswitch_pressed: [bool; NUM_KEYS] = [false; NUM_KEYS];
     loop {
-	let mut leds_dirty = false;
+        // let mut leds_dirty = false;
         // Sensor input
-        let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64 / 400.0;
+        // let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64 / 400.0;
 
         // Process data from other keyboard
         if let Some(new_colors) = LED_SIGNAL.try_take() {
@@ -649,10 +651,10 @@ async fn main(spawner: Spawner) {
         }
 
         // Write LEDs
-	if leds_dirty {
-        led.write(brightness(gamma(led_color_arr.into_iter()), level))
-            .unwrap();
-	}
+        // if leds_dirty {
+        //     led.write(brightness(gamma(led_color_arr.into_iter()), level))
+        //         .unwrap();
+        // }
 
         // Yield here is required. Without it, there is significant lag, presumably because the HID task doesn't get adequate runtime
         Timer::after(Duration::from_millis(5)).await;
