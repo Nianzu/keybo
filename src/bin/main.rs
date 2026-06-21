@@ -140,7 +140,7 @@ enum KeyAction<'a> {
     layer_mo(u8),
 }
 
-static LED_SIGNAL: Signal<CriticalSectionRawMutex, GeneralMessage> = Signal::new();
+static MESSAGE_SIGNAL: Signal<CriticalSectionRawMutex, GeneralMessage> = Signal::new();
 
 #[main]
 async fn main(spawner: Spawner) {
@@ -542,17 +542,17 @@ async fn main(spawner: Spawner) {
         // let pos = block!(adc1.read_oneshot(&mut pin)).unwrap() as f64 / 400.0;
 
         // Process data from other keyboard
-        if let Some(new_colors) = LED_SIGNAL.try_take() {
-            if let GeneralMessage::KeyMessage(km) = new_colors {
+        if let Some(message) = MESSAGE_SIGNAL.try_take() {
+            if let GeneralMessage::KeyMessage(km) = message {
                 if km.press {
                     keyboard.press(km.key).await;
                 } else {
                     keyboard.release(km.key).await;
                 }
-            } else if let GeneralMessage::LayerMessage(lm) = new_colors {
+            } else if let GeneralMessage::LayerMessage(lm) = message {
                 layer = lm.new_layer as usize;
                 keyboard.clear().await;
-            } else if let GeneralMessage::MultiKeyMessage(km) = new_colors {
+            } else if let GeneralMessage::MultiKeyMessage(km) = message {
                 if km.press {
                     keyboard.press(km.key_1).await;
                     keyboard.press(km.key_2).await;
@@ -699,7 +699,7 @@ async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNow
             }
         } else if r.info.dst_address == mac {
             if let Some(msg) = GeneralMessage::from_bytes(r.data()) {
-                LED_SIGNAL.signal(msg);
+                MESSAGE_SIGNAL.signal(msg);
             }
         }
     }
