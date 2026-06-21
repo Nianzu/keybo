@@ -563,17 +563,17 @@ async fn main(spawner: Spawner) {
 
         // Key loop
         for i in 0..NUM_KEYS {
-            let mut msg: Option<[u8; PACKET_LEN]> = None;
-            let key_action = &layer_1[layer][key_matrix[i].1][key_matrix[i].0];
             let mut pressed = true;
-            if keyswitch_arr[i].is_high() && !keyswitch_pressed[i] {
-                pressed = true;
-            } else if keyswitch_arr[i].is_low() && keyswitch_pressed[i] {
-                pressed = false;
+            let keyswitch_high = keyswitch_arr[i].is_high();
+            if (keyswitch_high && !keyswitch_pressed[i]) || (!keyswitch_high && keyswitch_pressed[i]) {
+                pressed = keyswitch_high;
             } else {
                 continue;
             }
             keyswitch_pressed[i] = pressed;
+
+            let mut msg: Option<[u8; PACKET_LEN]> = None;
+            let key_action = &layer_1[layer][key_matrix[i].1][key_matrix[i].0];
 
             if let KeyAction::key(key) = *key_action {
                 if pressed {
